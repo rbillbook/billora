@@ -1166,12 +1166,16 @@ const isIntra = (firmCode, buyerCode) => !firmCode || !buyerCode || firmCode ===
 // ---- State
 const S = {firm:{}, items:[], parties:[], invoices:[], todayTotal:0};
 let db=null, dl=null, dbReady=false;
-let CID="main"; try{ CID=localStorage.getItem("billora-company")||"main"; }catch(e){}
-const colPath = n => CID==="main" ? n : `co/${CID}/${n}`;
+// Test accounts get their own empty books under u/<uid>/ (they never see the main data)
+const SANDBOX=["himanshutest@billbook.app"];
+let ROOT=""; try{ const u=localStorage.getItem("billora-sbx"); if(u) ROOT="u/"+u+"/"; }catch(e){}
+const KS = () => ROOT ? "-"+ROOT.split("/")[1] : "";
+let CID="main"; try{ CID=localStorage.getItem("billora-company"+KS())||"main"; }catch(e){}
+const colPath = n => ROOT + (CID==="main" ? n : `co/${CID}/${n}`);
 const C = n => db.collection(colPath(n));
 const D = (n,id) => db.doc(colPath(n)+"/"+id);
-const FIRM = () => db.doc(CID==="main" ? "settings/firm" : `co/${CID}/settings/firm`);
-const DRAFT_KEY = () => "billora-draft-v1" + (CID==="main" ? "" : "-"+CID);
+const FIRM = () => db.doc(ROOT + (CID==="main" ? "settings/firm" : `co/${CID}/settings/firm`));
+const DRAFT_KEY = () => "billora-draft-v1" + KS() + (CID==="main" ? "" : "-"+CID);
 const newDraft = () => ({party:{name:"",address:"",gstin:"",stateCode:""}, same:true, ship:{name:"",address:"",gstin:"",stateCode:""}, date:todayISO(), ref:"", pay:"", order:"", dispatch:"", dest:"", taxMode:"auto", noAuto:true, noManual:"", lines:[]});
 let draft = (()=>{ try{ const d=JSON.parse(localStorage.getItem(DRAFT_KEY())); if(d && Array.isArray(d.lines)) return Object.assign(newDraft(), d); }catch(e){} return newDraft(); })();
 let draftT; function saveDraft(){ clearTimeout(draftT); draftT=setTimeout(()=>{ try{ localStorage.setItem(DRAFT_KEY(), JSON.stringify(draft)); }catch(e){} }, 300); }
@@ -1876,7 +1880,7 @@ $("#acct-xlsx").addEventListener("click", () => {
 });
 
 // ================= PURCHASE =================
-const PKEY = () => "billora-purchase-v1" + (CID==="main" ? "" : "-"+CID);
+const PKEY = () => "billora-purchase-v1" + KS() + (CID==="main" ? "" : "-"+CID);
 const newPur = () => ({name:"", address:"", gstin:"", stateCode:"", no:"", date:todayISO(), lines:[]});
 const loadPur = () => { try{ const d=JSON.parse(localStorage.getItem(PKEY())); if(d && Array.isArray(d.lines)) return Object.assign(newPur(), d); }catch(e){} return newPur(); };
 let pur = loadPur();
@@ -2186,7 +2190,7 @@ $("#gst-xlsx").addEventListener("click", () => {
 });
 
 // ================= CREDIT / DEBIT NOTES =================
-const NKEY = () => "billora-note-v1" + (CID==="main" ? "" : "-"+CID);
+const NKEY = () => "billora-note-v1" + KS() + (CID==="main" ? "" : "-"+CID);
 const newNote = (type) => ({type:type||"credit", name:"", address:"", gstin:"", stateCode:"", against:"", date:todayISO(), reason:"", lines:[]});
 const loadNote = () => { try{ const d=JSON.parse(localStorage.getItem(NKEY())); if(d && Array.isArray(d.lines)) return Object.assign(newNote(), d); }catch(e){} return newNote(); };
 let nt = loadNote();
@@ -2940,7 +2944,7 @@ $("#gst-json").addEventListener("click", async () => {
 const OK={challan:{t:"Delivery Challan", doc:"DELIVERY CHALLAN", p:"DC/", key:"nextDC", party:"Buyer name", ref:"Vehicle / dispatch", hint:"Goods sent to a buyer before the bill. Make the bill from it later with “Make bill”; stock goes down when the bill is saved."},
   so:{t:"Sales Order", doc:"SALES ORDER", p:"SO/", key:"nextSO", party:"Buyer name", ref:"Buyer's order no.", hint:"An order taken from a buyer. When the goods go out, press “Make bill” on it."},
   po:{t:"Purchase Order", doc:"PURCHASE ORDER", p:"PO/", key:"nextPO", party:"Supplier name", ref:"Delivery by", hint:"An order you place with a supplier. When the goods and bill arrive, press “Make purchase” on it."}};
-const OKEY = () => "billora-order-v1" + (CID==="main" ? "" : "-"+CID);
+const OKEY = () => "billora-order-v1" + KS() + (CID==="main" ? "" : "-"+CID);
 const newOrd = (kind) => ({kind:kind||"challan", name:"", address:"", gstin:"", stateCode:"", date:todayISO(), ref:"", note:"", lines:[]});
 const loadOrd = () => { try{ const d=JSON.parse(localStorage.getItem(OKEY())); if(d && Array.isArray(d.lines) && OK[d.kind]) return Object.assign(newOrd(), d); }catch(e){} return newOrd(); };
 let od = loadOrd();
@@ -3118,7 +3122,7 @@ $("#settings-form").addEventListener("submit", async e => {
     const ok=await dialog({title:"Change business details?", msg:"ARE YOU SURE YOU WANT TO CHANGE THE DETAILS? New invoices will print the new details. Invoices already saved keep the old details.", yes:"Yes, change", no:"Cancel"});
     if(!ok){ toast("No changes saved"); return; }
   }
-  try{ await FIRM().set(data, {merge:true}); if(CID!=="main" && data.name) await db.doc("companies/"+CID).set({name:data.name}, {merge:true}); settingsDirty=false; $("#st-state-msg").textContent="Saved"; toast("Settings saved"); }catch(err){ toast(errMsg(err),true); }
+  try{ await FIRM().set(data, {merge:true}); if(CID!=="main" && data.name) await db.doc(ROOT+"companies/"+CID).set({name:data.name}, {merge:true}); settingsDirty=false; $("#st-state-msg").textContent="Saved"; toast("Settings saved"); }catch(err){ toast(errMsg(err),true); }
 });
 
 function onFirm(){
@@ -3264,7 +3268,7 @@ async function loadLastEntries(force){
   lastEntryAt=Date.now();
   const ids=["main", ...cos.map(c=>c.id)];
   await Promise.all(ids.map(async id => {
-    const base = id==="main" ? "" : `co/${id}/`;
+    const base = ROOT + (id==="main" ? "" : `co/${id}/`);
     let best="";
     await Promise.all(["invoices","purchases","payments","vouchers","returns","orders"].map(async n => {
       try{ const q=await db.collection(base+n).orderBy("date","desc").limit(1).get(); q.docs.forEach(d=>{ const v=String(d.data().date||""); if(v>best) best=v; }); }catch(e){}
@@ -3390,6 +3394,9 @@ if(!window.firebase || !CFG || !CFG.apiKey || String(CFG.apiKey).includes("PASTE
   auth.onAuthStateChanged(user => {
     unsubs.forEach(u=>u()); unsubs=[]; unsubGlobal.forEach(u=>u()); unsubGlobal=[]; closeAccount(); if(unsubPur){ unsubPur(); unsubPur=null; } if(unsubNt){ unsubNt(); unsubNt=null; } if(unsubV){ unsubV(); unsubV=null; } if(unsubO){ unsubO(); unsubO=null; } if(unsubBills){ unsubBills(); unsubBills=null; }
     if(!user){ dbReady=false; $("#app").hidden=true; $("#login").hidden=false; return; }
+    { const want = SANDBOX.includes(String(user.email||"").toLowerCase()) ? "u/"+user.uid+"/" : "";
+      if(want!==ROOT){ let saved=false; try{ if(want) localStorage.setItem("billora-sbx", user.uid); else localStorage.removeItem("billora-sbx"); saved = (localStorage.getItem("billora-sbx")||"")===(want ? user.uid : ""); }catch(e){}
+        if(saved){ location.reload(); return; } ROOT=want; CID="main"; } }
     $("#login").hidden=true; $("#app").hidden=false; $("#user-email").textContent=user.email; dbReady=true; banner("");
     $("#lg-email").value=""; $("#lg-pass").value="";
     subscribeGlobal(); subscribeAll();
@@ -3399,7 +3406,7 @@ function subscribeAll(){
   const user=auth.currentUser||{};
   const fail = e => banner(e && e.code==="permission-denied" ? "This account ("+user.email+") does not have access to the data. Add this email to the Firestore rules." : "Could not load data: "+((e&&e.message)||e));
   unsubs.push(FIRM().onSnapshot(async s => {
-    if(!s.exists && CID==="main" && window.SEED && !s.metadata.fromCache){ try{ const b=db.batch(); b.set(FIRM(), SEED.firm); (SEED.items||[]).forEach(it=>b.set(C("items").doc(it.id), it.data)); await b.commit(); toast("Business details and items set up"); }catch(e){} return; }
+    if(!s.exists && CID==="main" && !ROOT && window.SEED && !s.metadata.fromCache){ try{ const b=db.batch(); b.set(FIRM(), SEED.firm); (SEED.items||[]).forEach(it=>b.set(C("items").doc(it.id), it.data)); await b.commit(); toast("Business details and items set up"); }catch(e){} return; }
     S.firm = s.exists ? {...s.data()} : {}; onFirm(); }, fail));
   unsubs.push(C("items").onSnapshot(q => { S.items=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.name).localeCompare(String(b.name))); renderItems(); renderBills(); }, fail));
   unsubs.push(C("parties").onSnapshot(q => { S.parties=q.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.name).localeCompare(String(b.name))); renderParties(); }, fail));
@@ -3416,13 +3423,13 @@ function renderCoSel(){
   sel.value = opts.some(o=>o[0]===CID) ? CID : "main";
 }
 function subscribeGlobal(){
-  unsubGlobal.push(db.doc("settings/firm").onSnapshot(s => { mainName = (s.exists && s.data().name) || "Main company"; renderCoSel(); }, ()=>{}));
-  unsubGlobal.push(db.collection("companies").onSnapshot(q => { companies=q.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)); renderCoSel(); }, ()=>{}));
+  unsubGlobal.push(db.doc(ROOT+"settings/firm").onSnapshot(s => { mainName = (s.exists && s.data().name) || "Main company"; renderCoSel(); }, ()=>{}));
+  unsubGlobal.push(db.collection(ROOT+"companies").onSnapshot(q => { companies=q.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)); renderCoSel(); }, ()=>{}));
 }
 function switchCompany(id){
   if(id===CID) return;
   unsubs.forEach(u=>u()); unsubs=[]; if(unsubBills){ unsubBills(); unsubBills=null; }
-  CID=id; try{ localStorage.setItem("billora-company", id); }catch(e){}
+  CID=id; try{ localStorage.setItem("billora-company"+KS(), id); }catch(e){}
   Object.assign(S, {firm:{}, items:[], parties:[], invoices:[], todayTotal:0}); settingsDirty=false;
   draft = (()=>{ try{ const d=JSON.parse(localStorage.getItem(DRAFT_KEY())); if(d && Array.isArray(d.lines)) return Object.assign(newDraft(), d); }catch(e){} return newDraft(); })();
   closeAccount(); if(unsubPur){ unsubPur(); unsubPur=null; } if(unsubNt){ unsubNt(); unsubNt=null; } if(unsubV){ unsubV(); unsubV=null; } if(unsubO){ unsubO(); unsubO=null; } vList=[]; purList=[]; ntList=[]; osRows=[]; oList=[]; lrData=null; brRows=[]; srId=""; skDocs=null; $("#sr-panel").hidden=true; pur=loadPur(); fillPur(); nt=loadNote(); fillNote(); od=loadOrd(); fillOrd(); resetItemForm(); resetPartyForm();
@@ -3437,8 +3444,8 @@ $("#co-sel").addEventListener("change", async e => {
   if(!name) return;
   try{
     const id="co-"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    await db.doc("companies/"+id).set({name, createdAt:Date.now(), createdBy:(auth.currentUser&&auth.currentUser.email)||""});
-    await db.doc(`co/${id}/settings/firm`).set({name, prefix:"INV/", fy:"", nextNo:1, decl:DEFAULT_DECL});
+    await db.doc(ROOT+"companies/"+id).set({name, createdAt:Date.now(), createdBy:(auth.currentUser&&auth.currentUser.email)||""});
+    await db.doc(`${ROOT}co/${id}/settings/firm`).set({name, prefix:"INV/", fy:"", nextNo:1, decl:DEFAULT_DECL});
     switchCompany(id); showTab("settings"); toast(`Company "${name}" created. Fill in its details.`);
   }catch(err){ toast(errMsg(err), true); }
 });
